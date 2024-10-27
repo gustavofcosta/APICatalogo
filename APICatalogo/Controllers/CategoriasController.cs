@@ -1,5 +1,8 @@
 ﻿using APICatalogo.Context;
+using APICatalogo.DTOs;
+using APICatalogo.Filters;
 using APICatalogo.Models;
+using APICatalogo.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,83 +12,101 @@ namespace APICatalogo.Controllers;
 [ApiController]
 public class CategoriasController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IUnitOfWork _uof;
+    private readonly ILogger _logger;
 
-    public CategoriasController(AppDbContext context)
+    public CategoriasController(IUnitOfWork uof, ILogger<CategoriasController> logger)
     {
-        _context = context;
+        _uof = uof;
+        _logger = logger;
     }
 
     [HttpGet("produtos")]
     public async Task<ActionResult<IEnumerable<Categoria>>> GetCategoriasProdutos()
     {
+        _logger.LogInformation("======== ============= Get api/categorias/produtos ======= ======================");
         //return _context.Categorias.Include(p=> p.Produtos).AsNoTracking().ToList();  não fazer desta forma, sempre incluir filtro
-        return await _context.Categorias.Include(p => p.Produtos).Where(c => c.CategoriaId <= 5).ToListAsync();
+        //return await _context.Categorias.Include(p => p.Produtos).Where(c => c.CategoriaId <= 5).ToListAsync();
+        return null;
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Categoria>>> Get()
+    [ServiceFilter(typeof(ApiLoggingFilter))]
+    public ActionResult<IEnumerable<CategoriaDTO>> Get()
     {
-        return await _context.Categorias.AsNoTracking().ToListAsync();
+        var categorias = _uof.CategoriaRepository.GetAll();
+        return Ok(categorias);
     }
 
     [HttpGet("{id:int}", Name = "ObterCategoria")]
-    public async Task<ActionResult<Categoria>> Get(int id)
+    public ActionResult<CategoriaDTO> Get(int id)
     {
-        try
+        var categoria = _uof.CategoriaRepository.Get(c => c.CategoriaId == id);
+        if (categoria is null)
         {
-            var categoria = await  _context.Categorias.FirstOrDefaultAsync(p => p.CategoriaId == id);
-            if (categoria is null)
-            {
-                return NotFound("Categoria não encontrado");
-            }
-            return Ok(categoria);
+            return NotFound("Categoria não encontrado");
         }
-        catch (Exception)
+
+        var categoriaDto = new CategoriaDTO()
         {
-            return StatusCode(StatusCodes.Status500InternalServerError, "Ocorreu um problema ao tratar a sua solicitação");
-        }
+            CategoriaId = categoria.CategoriaId,
+            Nome = categoria.Nome,
+            ImagemURL = categoria.ImagemURL,
+        };
+        return Ok(categoriaDto); 
     }
 
     [HttpPost]
-    public ActionResult Post(Categoria categoria)
+    public ActionResult<CategoriaDTO> Post(CategoriaDTO categoriaDto)
     {
-        if (categoria is null)
-            return BadRequest();
+        if (categoriaDto is null)
+            return BadRequest("Dados inválidos");
 
-        _context.Categorias.Add(categoria);
-        _context.SaveChanges();
+        var categoria = new Categoria()
+        {
+            CategoriaId = categoriaDto.CategoriaId,
+            Nome = categoriaDto.Nome,
+            ImagemURL = categoriaDto.ImagemURL,
+        };
+        _uof.CategoriaRepository.Create(categoria);
+        _uof.Commit();
 
-        return new CreatedAtRouteResult("ObterCategoria", new { id = categoria.CategoriaId }, categoria);
+        var novaCategoriaDto = new CategoriaDTO()
+        {
+            CategoriaId = categoria.CategoriaId,
+            Nome = categoria.Nome,
+            ImagemURL = categoria.ImagemURL,
+        };
+
+        return new CreatedAtRouteResult("ObterCategoria", new { id = novaCategoriaDto.CategoriaId }, novaCategoriaDto);
     }
 
     [HttpPut("{id:int:min(1)}")]
-    public ActionResult Put(int id, Categoria categoria)
+    public ActionResult<CategoriaDTO> Put(int id, CategoriaDTO categoria)
     {
         if (id != categoria.CategoriaId)
         {
             return BadRequest();
         }
 
-        _context.Entry(categoria).State = EntityState.Modified;
-        _context.SaveChanges();
-
+        _uof.CategoriaRepository.Update(categoria);
+        _uof.Commit();
 
         return Ok(categoria);
     }
 
     [HttpDelete("{id:int}")]
-    public ActionResult Delete(int id)
+    public ActionResult<CategoriaDTO> Delete(int id)
     {
-        var categoria = _context.Categorias.FirstOrDefault(p => p.CategoriaId == id);
+        var categoria = _uof.CategoriaRepository.Get(c => c.CategoriaId == id);
 
         if (categoria is null)
         {
             return NotFound("Categoria não localizado...");
         }
 
-        _context.Categorias.Remove(categoria);
-        _context.SaveChanges();
+        _uof.CategoriaRepository.Delete(categoria);
+        _uof.Commit();
 
         return Ok(categoria);
     }
